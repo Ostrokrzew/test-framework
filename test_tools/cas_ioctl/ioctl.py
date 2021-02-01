@@ -4,7 +4,11 @@
 #
 
 import ctypes
+import os
+import marshal
 
+from core.test_run import TestRun
+from test_tools.fs_utils import chmod_numerical, remove, check_if_directory_exists, create_directory
 
 IOC_NRBITS = 8
 IOC_TYPEBITS = 8
@@ -100,3 +104,30 @@ def IOC_NR(nr):
 
 def IOC_SIZE(nr):
     return (nr >> IOC_SIZESHIFT) & IOC_SIZEMASK
+
+
+dest_dir = '/tmp/cas'
+struct_source = os.path.join(f'{os.path.dirname(__file__)}', 'dump_file')
+struct_dest = os.path.join(dest_dir, 'dump_file')
+script_source = os.path.join(f'{os.path.dirname(__file__)}', 'send_ioctl_script.py')
+script_dest = os.path.join(dest_dir, 'send_ioctl_script.py')
+
+
+def send_script_with_dumped_args():
+    if not check_if_directory_exists(dest_dir):
+        create_directory(dest_dir, True)
+
+    TestRun.executor.rsync_to(script_source, script_dest)
+    chmod_numerical(script_dest, 550)
+
+    TestRun.executor.rsync_to(struct_source, struct_dest)
+    chmod_numerical(struct_dest, 440)
+
+
+def cas_ioctl(cas_ioctl_request):
+    with open(struct_source, 'wb') as dump_file:
+        marshal.dump(cas_ioctl_request.command_struct, dump_file)
+    send_script_with_dumped_args()
+    TestRun.executor.run(f"{script_dest} -c {cas_ioctl_request.command} -s {struct_dest}")
+    remove(dest_dir, True, True, True)
+    os.remove(struct_source)
